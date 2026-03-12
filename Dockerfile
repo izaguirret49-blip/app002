@@ -1,12 +1,11 @@
-FROM ubuntu:22.04
-
-RUN apt-get update && apt-get install -y g++ && rm -rf /var/lib/apt/lists/*
+FROM gcc:13
 
 WORKDIR /app
+
 COPY . .
 
-RUN g++ server.cpp -o app -O2 -pthread
+RUN g++ -std=c++17 -O2 -pthread main.cpp server.cpp -o app
 
-EXPOSE 8080
+EXPOSE 10000
 
-CMD ["./app"]
+CMD ["sh", "-c", "./app"]

@@ -8,28 +8,8 @@
 #ifndef CPPHTTPLIB_HTTPLIB_H
 #define CPPHTTPLIB_HTTPLIB_H
 
-#define CPPHTTPLIB_VERSION "0.35.0"
-#define CPPHTTPLIB_VERSION_NUM "0x002300"
-
-/*
- * Platform compatibility check
- */
-
-#if defined(_WIN32) && !defined(_WIN64)
-#if defined(_MSC_VER)
-#pragma message(                                                               \
-    "cpp-httplib doesn't support 32-bit Windows. Please use a 64-bit compiler.")
-#else
-#warning                                                                       \
-    "cpp-httplib doesn't support 32-bit Windows. Please use a 64-bit compiler."
-#endif
-#elif defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ < 8
-#warning                                                                       \
-    "cpp-httplib doesn't support 32-bit platforms. Please use a 64-bit compiler."
-#elif defined(__SIZEOF_SIZE_T__) && __SIZEOF_SIZE_T__ < 8
-#warning                                                                       \
-    "cpp-httplib doesn't support platforms where size_t is less than 64 bits."
-#endif
+#define CPPHTTPLIB_VERSION "0.37.0"
+#define CPPHTTPLIB_VERSION_NUM "0x002500"
 
 #ifdef _WIN32
 #if defined(_WIN32_WINNT) && _WIN32_WINNT < 0x0A00
@@ -573,6 +553,14 @@ inline unsigned char to_lower(int c) {
       255,
   };
   return table[(unsigned char)(char)c];
+}
+
+inline std::string to_lower(const std::string &s) {
+  std::string result = s;
+  std::transform(
+      result.begin(), result.end(), result.begin(),
+      [](unsigned char c) { return static_cast<char>(to_lower(c)); });
+  return result;
 }
 
 inline bool equal(const std::string &a, const std::string &b) {
@@ -1863,23 +1851,23 @@ public:
       : res_(std::move(res)), err_(err),
         request_headers_(std::move(request_headers)), ssl_error_(ssl_error) {}
   Result(std::unique_ptr<Response> &&res, Error err, Headers &&request_headers,
-         int ssl_error, unsigned long ssl_backend_error)
+         int ssl_error, uint64_t ssl_backend_error)
       : res_(std::move(res)), err_(err),
         request_headers_(std::move(request_headers)), ssl_error_(ssl_error),
         ssl_backend_error_(ssl_backend_error) {}
 
   int ssl_error() const { return ssl_error_; }
-  unsigned long ssl_backend_error() const { return ssl_backend_error_; }
+  uint64_t ssl_backend_error() const { return ssl_backend_error_; }
 
 private:
   int ssl_error_ = 0;
-  unsigned long ssl_backend_error_ = 0;
+  uint64_t ssl_backend_error_ = 0;
 #endif
 
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
 public:
   [[deprecated("Use ssl_backend_error() instead")]]
-  unsigned long ssl_openssl_error() const {
+  uint64_t ssl_openssl_error() const {
     return ssl_backend_error_;
   }
 #endif
@@ -2349,7 +2337,7 @@ protected:
   bool server_hostname_verification_ = true;
   std::string ca_cert_pem_; // Store CA cert PEM for redirect transfer
   int last_ssl_error_ = 0;
-  unsigned long last_backend_error_ = 0;
+  uint64_t last_backend_error_ = 0;
 #endif
 
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
@@ -2793,7 +2781,7 @@ inline size_t get_header_value_u64(const Headers &headers,
   std::advance(it, static_cast<ssize_t>(id));
   if (it != rng.second) {
     if (is_numeric(it->second)) {
-      return std::strtoull(it->second.data(), nullptr, 10);
+      return static_cast<size_t>(std::strtoull(it->second.data(), nullptr, 10));
     } else {
       is_invalid_value = true;
     }
@@ -4622,17 +4610,13 @@ inline bool is_websocket_upgrade(const Request &req) {
   // Check Upgrade: websocket (case-insensitive)
   auto upgrade_it = req.headers.find("Upgrade");
   if (upgrade_it == req.headers.end()) { return false; }
-  auto upgrade_val = upgrade_it->second;
-  std::transform(upgrade_val.begin(), upgrade_val.end(), upgrade_val.begin(),
-                 ::tolower);
+  auto upgrade_val = case_ignore::to_lower(upgrade_it->second);
   if (upgrade_val != "websocket") { return false; }
 
   // Check Connection header contains "Upgrade"
   auto connection_it = req.headers.find("Connection");
   if (connection_it == req.headers.end()) { return false; }
-  auto connection_val = connection_it->second;
-  std::transform(connection_val.begin(), connection_val.end(),
-                 connection_val.begin(), ::tolower);
+  auto connection_val = case_ignore::to_lower(connection_it->second);
   if (connection_val.find("upgrade") == std::string::npos) { return false; }
 
   // Check Sec-WebSocket-Key is a valid base64-encoded 16-byte value (24 chars)
@@ -6424,10 +6408,15 @@ inline bool can_compress_content_type(const std::string &content_type) {
   switch (tag) {
   case "image/svg+xml"_t:
   case "application/javascript"_t:
+  case "application/x-javascript"_t:
   case "application/json"_t:
+  case "application/ld+json"_t:
   case "application/xml"_t:
-  case "application/protobuf"_t:
-  case "application/xhtml+xml"_t: return true;
+  case "application/xhtml+xml"_t:
+  case "application/rss+xml"_t:
+  case "application/atom+xml"_t:
+  case "application/xslt+xml"_t:
+  case "application/protobuf"_t: return true;
 
   case "text/event-stream"_t: return false;
 
@@ -6847,17 +6836,13 @@ inline bool read_websocket_upgrade_response(Stream &strm,
   // Verify Upgrade: websocket (case-insensitive)
   auto upgrade_it = headers.find("Upgrade");
   if (upgrade_it == headers.end()) { return false; }
-  auto upgrade_val = upgrade_it->second;
-  std::transform(upgrade_val.begin(), upgrade_val.end(), upgrade_val.begin(),
-                 ::tolower);
+  auto upgrade_val = case_ignore::to_lower(upgrade_it->second);
   if (upgrade_val != "websocket") { return false; }
 
   // Verify Connection header contains "Upgrade" (case-insensitive)
   auto connection_it = headers.find("Connection");
   if (connection_it == headers.end()) { return false; }
-  auto connection_val = connection_it->second;
-  std::transform(connection_val.begin(), connection_val.end(),
-                 connection_val.begin(), ::tolower);
+  auto connection_val = case_ignore::to_lower(connection_it->second);
   if (connection_val.find("upgrade") == std::string::npos) { return false; }
 
   // Verify Sec-WebSocket-Accept header value
@@ -7743,14 +7728,10 @@ public:
             file_.content_type =
                 trim_copy(header.substr(str_len(header_content_type)));
           } else {
-            thread_local const std::regex re_content_disposition(
-                R"~(^Content-Disposition:\s*form-data;\s*(.*)$)~",
-                std::regex_constants::icase);
-
-            std::smatch m;
-            if (std::regex_match(header, m, re_content_disposition)) {
+            std::string disposition_params;
+            if (parse_content_disposition(header, disposition_params)) {
               Params params;
-              parse_disposition_params(m[1], params);
+              parse_disposition_params(disposition_params, params);
 
               auto it = params.find("name");
               if (it != params.end()) {
@@ -7765,13 +7746,14 @@ public:
 
               it = params.find("filename*");
               if (it != params.end()) {
-                // Only allow UTF-8 encoding...
-                thread_local const std::regex re_rfc5987_encoding(
-                    R"~(^UTF-8''(.+?)$)~", std::regex_constants::icase);
-
-                std::smatch m2;
-                if (std::regex_match(it->second, m2, re_rfc5987_encoding)) {
-                  file_.filename = decode_path_component(m2[1]); // override...
+                // RFC 5987: only UTF-8 encoding is allowed
+                const auto &val = it->second;
+                constexpr const char utf8_prefix[] = "UTF-8''";
+                constexpr size_t prefix_len = str_len(utf8_prefix);
+                if (val.size() > prefix_len &&
+                    start_with_case_ignore(val, utf8_prefix)) {
+                  file_.filename = decode_path_component(
+                      val.substr(prefix_len)); // override...
                 } else {
                   is_valid_ = false;
                   return false;
@@ -7839,14 +7821,45 @@ private:
     file_.headers.clear();
   }
 
-  bool start_with_case_ignore(const std::string &a, const char *b) const {
+  bool start_with_case_ignore(const std::string &a, const char *b,
+                              size_t offset = 0) const {
     const auto b_len = strlen(b);
-    if (a.size() < b_len) { return false; }
+    if (a.size() < offset + b_len) { return false; }
     for (size_t i = 0; i < b_len; i++) {
-      if (case_ignore::to_lower(a[i]) != case_ignore::to_lower(b[i])) {
+      if (case_ignore::to_lower(a[offset + i]) != case_ignore::to_lower(b[i])) {
         return false;
       }
     }
+    return true;
+  }
+
+  // Parses "Content-Disposition: form-data; <params>" without std::regex.
+  // Returns true if header matches, with the params portion in `params_out`.
+  bool parse_content_disposition(const std::string &header,
+                                 std::string &params_out) const {
+    constexpr const char prefix[] = "Content-Disposition:";
+    constexpr size_t prefix_len = str_len(prefix);
+
+    if (!start_with_case_ignore(header, prefix)) { return false; }
+
+    // Skip whitespace after "Content-Disposition:"
+    auto pos = prefix_len;
+    while (pos < header.size() && (header[pos] == ' ' || header[pos] == '\t')) {
+      pos++;
+    }
+
+    // Match "form-data;" (case-insensitive)
+    constexpr const char form_data[] = "form-data;";
+    constexpr size_t form_data_len = str_len(form_data);
+    if (!start_with_case_ignore(header, form_data, pos)) { return false; }
+    pos += form_data_len;
+
+    // Skip whitespace after "form-data;"
+    while (pos < header.size() && (header[pos] == ' ' || header[pos] == '\t')) {
+      pos++;
+    }
+
+    params_out = header.substr(pos);
     return true;
   }
 
@@ -8208,7 +8221,8 @@ get_range_offset_and_length(Range r, size_t content_length) {
   assert(r.first <= r.second &&
          r.second < static_cast<ssize_t>(content_length));
   (void)(content_length);
-  return std::make_pair(r.first, static_cast<size_t>(r.second - r.first) + 1);
+  return std::make_pair(static_cast<size_t>(r.first),
+                        static_cast<size_t>(r.second - r.first) + 1);
 }
 
 inline std::string make_content_range_header_field(
@@ -8801,9 +8815,10 @@ inline bool match_hostname(const std::string &pattern,
 // Verify certificate using Windows CertGetCertificateChain API.
 // This provides real-time certificate validation with Windows Update
 // integration, independent of the TLS backend (OpenSSL or MbedTLS).
-inline bool verify_cert_with_windows_schannel(
-    const std::vector<unsigned char> &der_cert, const std::string &hostname,
-    bool verify_hostname, unsigned long &out_error) {
+inline bool
+verify_cert_with_windows_schannel(const std::vector<unsigned char> &der_cert,
+                                  const std::string &hostname,
+                                  bool verify_hostname, uint64_t &out_error) {
   if (der_cert.empty()) { return false; }
 
   out_error = 0;
@@ -11796,7 +11811,7 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
 #else
   try {
     routed = routing(req, res, strm);
-  } catch (std::exception &e) {
+  } catch (std::exception &) {
     if (exception_handler_) {
       auto ep = std::current_exception();
       exception_handler_(req, res, ep);
@@ -15620,7 +15635,7 @@ inline bool SSLClient::initialize_ssl(Socket &socket, Error &error) {
       server_certificate_verification_) {
     verify_result_ = tls::get_verify_result(session);
     if (verify_result_ != 0) {
-      last_backend_error_ = static_cast<unsigned long>(verify_result_);
+      last_backend_error_ = static_cast<uint64_t>(verify_result_);
       error = Error::SSLServerVerification;
       output_error_log(error, nullptr);
       return false;
@@ -15659,7 +15674,7 @@ inline bool SSLClient::initialize_ssl(Socket &socket, Error &error) {
         ca_cert_dir_path_.empty() && ca_cert_pem_.empty()) {
       std::vector<unsigned char> der;
       if (get_cert_der(server_cert, der)) {
-        unsigned long wincrypt_error = 0;
+        uint64_t wincrypt_error = 0;
         if (!detail::verify_cert_with_windows_schannel(
                 der, host_, server_hostname_verification_, wincrypt_error)) {
           last_backend_error_ = wincrypt_error;
@@ -15783,16 +15798,26 @@ inline bool is_ipv4_address(const std::string &str) {
 
 // Parse IPv4 address string to bytes
 inline bool parse_ipv4(const std::string &str, unsigned char *out) {
-  int parts[4];
-  if (sscanf(str.c_str(), "%d.%d.%d.%d", &parts[0], &parts[1], &parts[2],
-             &parts[3]) != 4) {
-    return false;
-  }
+  const char *p = str.c_str();
   for (int i = 0; i < 4; i++) {
-    if (parts[i] < 0 || parts[i] > 255) return false;
-    out[i] = static_cast<unsigned char>(parts[i]);
+    if (i > 0) {
+      if (*p != '.') { return false; }
+      p++;
+    }
+    int val = 0;
+    int digits = 0;
+    while (*p >= '0' && *p <= '9') {
+      val = val * 10 + (*p - '0');
+      if (val > 255) { return false; }
+      p++;
+      digits++;
+    }
+    if (digits == 0) { return false; }
+    // Reject leading zeros (e.g., "01.002.03.04") to prevent ambiguity
+    if (digits > 1 && *(p - digits) == '0') { return false; }
+    out[i] = static_cast<unsigned char>(val);
   }
-  return true;
+  return *p == '\0';
 }
 
 #ifdef _WIN32
@@ -17094,11 +17119,11 @@ inline void update_server_certs_from_x509(ctx_t ctx, X509 *cert, EVP_PKEY *key,
 
 inline ctx_t create_client_context_from_x509(X509 *cert, EVP_PKEY *key,
                                              const char *password,
-                                             unsigned long &out_error) {
+                                             uint64_t &out_error) {
   out_error = 0;
   auto ctx = create_client_context();
   if (!ctx) {
-    out_error = static_cast<unsigned long>(get_error());
+    out_error = get_error();
     return nullptr;
   }
 
@@ -17112,7 +17137,7 @@ inline ctx_t create_client_context_from_x509(X509 *cert, EVP_PKEY *key,
     }
     if (!set_client_cert_pem(ctx, cert_pem.c_str(), key_pem.c_str(),
                              password)) {
-      out_error = static_cast<unsigned long>(get_error());
+      out_error = get_error();
       free_context(ctx);
       return nullptr;
     }
